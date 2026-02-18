@@ -1,3 +1,4 @@
+import os
 import datetime
 import csv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -9,18 +10,18 @@ from telegram.ext import (
     JobQueue,
 )
 
-# ====== Настройки ======
-TOKEN = "8223330413:AAHDgNxy29Qy_Fd1_wOuJIEIprSNjEjjAhE"
-CHAT_ID = "5886734154"
+# ====== Настройки через переменные окружения ======
+TOKEN = os.environ["TOKEN"]
+CHAT_ID = os.environ["CHAT_ID"]
 LOG_FILE = "data/daily_log.csv"
 
-# Создание CSV с заголовком, если ещё нет
-try:
-    with open(LOG_FILE, "x", newline="") as f:
+# ====== Создание папки и CSV ======
+import pathlib
+pathlib.Path("data").mkdir(exist_ok=True)
+if not os.path.exists(LOG_FILE):
+    with open(LOG_FILE, "w", newline="") as f:
         writer = csv.writer(f)
         writer.writerow(["Дата", "Время", "Вопрос", "Ответ"])
-except FileExistsError:
-    pass
 
 # ====== Кнопки ======
 buttons_done = [
@@ -58,6 +59,7 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     log_response(question, answer)
 
     if answer == "Делаю":
+        # повтор через 15 мин
         context.job_queue.run_once(ask_question, 900, data={"question": question})
         await query.edit_message_text(text=f"{question}\nОтвет: {answer} (повтор через 15 мин)")
     else:
@@ -80,7 +82,7 @@ async def remind_stretch(context: ContextTypes.DEFAULT_TYPE):
 def schedule_jobs(app):
     jq: JobQueue = app.job_queue
 
-    # Утро
+    # --- Утро ---
     jq.run_daily(ask_question, time=datetime.time(hour=8, minute=0),
                  data={"question": "Доброе утро! Как спалось?"})
     jq.run_daily(ask_question, time=datetime.time(hour=8, minute=5),
@@ -90,7 +92,7 @@ def schedule_jobs(app):
     jq.run_daily(ask_question, time=datetime.time(hour=9, minute=30),
                  data={"question": "Сколько воды ты выпил? Цель — 500 мл"})
 
-    # Дневной блок
+    # --- Дневной блок ---
     jq.run_daily(ask_question, time=datetime.time(hour=12, minute=30),
                  data={"question": "Начинаем дневной блок! Время немного размяться"})
     jq.run_daily(ask_question, time=datetime.time(hour=12, minute=45),
@@ -102,7 +104,7 @@ def schedule_jobs(app):
     jq.run_daily(ask_question, time=datetime.time(hour=13, minute=45),
                  data={"question": "Сколько воды ты выпил? Цель — 1 литр"})
 
-    # Вечер
+    # --- Вечер ---
     jq.run_daily(ask_question, time=datetime.time(hour=22, minute=0),
                  data={"question": "Время обязательной прогулки с собакой!"})
     jq.run_daily(ask_question, time=datetime.time(hour=22, minute=30),
@@ -112,17 +114,17 @@ def schedule_jobs(app):
     jq.run_daily(ask_question, time=datetime.time(hour=23, minute=30),
                  data={"question": "Как прошёл твой день?"})
 
-# ====== Основной запуск ======
+# ====== Запуск бота ======
 if __name__ == "__main__":
     app = ApplicationBuilder().token(TOKEN).build()
 
-    # Обработчики команд и кнопок
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("work", start_work))
     app.add_handler(CallbackQueryHandler(button))
 
-    # Планирование ежедневных напоминаний
     schedule_jobs(app)
+    app.run_polling()
 
     # Запуск бота
     app.run_polling()
+
