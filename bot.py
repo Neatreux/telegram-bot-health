@@ -10,8 +10,8 @@ from telegram.ext import (
 )
 
 # ====== Настройки ======
-TOKEN = "ТВОЙ_TELEGRAM_TOKEN"
-CHAT_ID = "ТВОЙ_CHAT_ID"
+TOKEN = "8223330413:AAHDgNxy29Qy_Fd1_wOuJIEIprSNjEjjAhE"
+CHAT_ID = "5886734154"
 LOG_FILE = "data/daily_log.csv"
 
 # Создание CSV с заголовком, если ещё нет
