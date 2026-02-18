@@ -1,13 +1,20 @@
 import datetime
 import csv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Updater, CommandHandler, CallbackQueryHandler, CallbackContext, JobQueue
+from telegram.ext import (
+    ApplicationBuilder,
+    CommandHandler,
+    CallbackQueryHandler,
+    ContextTypes,
+    JobQueue,
+)
 
-TOKEN = "8223330413:AAHDgNxy29Qy_Fd1_wOuJIEIprSNjEjjAhE"
-CHAT_ID = "5886734154"
+# ====== Настройки ======
+TOKEN = "ТВОЙ_TELEGRAM_TOKEN"
+CHAT_ID = "ТВОЙ_CHAT_ID"
 LOG_FILE = "data/daily_log.csv"
 
-# Создание CSV, если ещё нет
+# Создание CSV с заголовком, если ещё нет
 try:
     with open(LOG_FILE, "x", newline="") as f:
         writer = csv.writer(f)
@@ -15,96 +22,107 @@ try:
 except FileExistsError:
     pass
 
+# ====== Кнопки ======
 buttons_done = [
     [InlineKeyboardButton("Сделал ✅", callback_data="Сделал"),
      InlineKeyboardButton("Пропустил ❌", callback_data="Пропустил"),
      InlineKeyboardButton("Делаю ⏳", callback_data="Делаю")]
 ]
 
+# ====== Функции ======
 def log_response(question, answer):
     now = datetime.datetime.now()
     with open(LOG_FILE, "a", newline="") as f:
         writer = csv.writer(f)
         writer.writerow([now.date(), now.time().strftime("%H:%M:%S"), question, answer])
 
-def start(update: Update, context: CallbackContext):
-    update.message.reply_text(
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
         "Привет! Я твой интерактивный бот для здоровья и дневника.\n"
         "Нажми /work, когда начнёшь дневную работу."
     )
 
-def ask_question(context: CallbackContext):
+async def ask_question(context: ContextTypes.DEFAULT_TYPE):
     job = context.job
-    context.bot.send_message(chat_id=CHAT_ID,
-                             text=job.context["question"],
-                             reply_markup=InlineKeyboardMarkup(buttons_done))
+    await context.bot.send_message(
+        chat_id=CHAT_ID,
+        text=job.data["question"],
+        reply_markup=InlineKeyboardMarkup(buttons_done)
+    )
 
-def button(update: Update, context: CallbackContext):
+async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    query.answer()
+    await query.answer()
     answer = query.data
     question = query.message.text
     log_response(question, answer)
 
     if answer == "Делаю":
-        context.job_queue.run_once(ask_question, 900, context={"question": question})
-        query.edit_message_text(text=f"{question}\nОтвет: {answer} (повтор через 15 мин)")
+        context.job_queue.run_once(ask_question, 900, data={"question": question})
+        await query.edit_message_text(text=f"{question}\nОтвет: {answer} (повтор через 15 мин)")
     else:
-        query.edit_message_text(text=f"{question}\nОтвет: {answer}")
+        await query.edit_message_text(text=f"{question}\nОтвет: {answer}")
 
-def start_work(update: Update, context: CallbackContext):
-    update.message.reply_text("Бот будет присылать напоминания о разминке каждый час.")
-    context.job_queue.run_repeating(remind_stretch, interval=3600, first=3600, context=CHAT_ID)
+async def start_work(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "Отлично! Бот будет присылать напоминания о разминке каждый час."
+    )
+    context.job_queue.run_repeating(remind_stretch, interval=3600, first=3600, data={})
 
-def remind_stretch(context: CallbackContext):
-    context.bot.send_message(chat_id=CHAT_ID,
-                             text="Время размяться! Сделай короткую зарядку.",
-                             reply_markup=InlineKeyboardMarkup(buttons_done))
+async def remind_stretch(context: ContextTypes.DEFAULT_TYPE):
+    await context.bot.send_message(
+        chat_id=CHAT_ID,
+        text="Время размяться! Сделай короткую зарядку.",
+        reply_markup=InlineKeyboardMarkup(buttons_done)
+    )
 
-def schedule_jobs(updater: Updater):
-    job_queue: JobQueue = updater.job_queue
+# ====== Планирование ежедневных напоминаний ======
+def schedule_jobs(app):
+    jq: JobQueue = app.job_queue
 
-    # Пример: утренние напоминания
-    job_queue.run_daily(ask_question, time=datetime.time(hour=8, minute=0),
-                        context={"question": "Доброе утро! Как спалось?"})
-    job_queue.run_daily(ask_question, time=datetime.time(hour=8, minute=5),
-                        context={"question": "Ты принял утренние таблетки?"})
-    job_queue.run_daily(ask_question, time=datetime.time(hour=9, minute=0),
-                        context={"question": "Время утренней зарядки или похода в зал"})
-    job_queue.run_daily(ask_question, time=datetime.time(hour=9, minute=30),
-                        context={"question": "Сколько воды ты выпил? Цель — 500 мл"})
+    # Утро
+    jq.run_daily(ask_question, time=datetime.time(hour=8, minute=0),
+                 data={"question": "Доброе утро! Как спалось?"})
+    jq.run_daily(ask_question, time=datetime.time(hour=8, minute=5),
+                 data={"question": "Ты принял утренние таблетки?"})
+    jq.run_daily(ask_question, time=datetime.time(hour=9, minute=0),
+                 data={"question": "Время утренней зарядки или похода в зал"})
+    jq.run_daily(ask_question, time=datetime.time(hour=9, minute=30),
+                 data={"question": "Сколько воды ты выпил? Цель — 500 мл"})
 
     # Дневной блок
-    job_queue.run_daily(ask_question, time=datetime.time(hour=12, minute=30),
-                        context={"question": "Начинаем дневной блок! Время немного размяться перед активностью"})
-    job_queue.run_daily(ask_question, time=datetime.time(hour=12, minute=45),
-                        context={"question": "Пора на прогулку с собакой!"})
-    job_queue.run_daily(ask_question, time=datetime.time(hour=13, minute=15),
-                        context={"question": "Время обеда! Не забудь поесть"})
-    job_queue.run_daily(ask_question, time=datetime.time(hour=13, minute=45),
-                        context={"question": "Принял дневные таблетки?"})
-    job_queue.run_daily(ask_question, time=datetime.time(hour=13, minute=45),
-                        context={"question": "Сколько воды ты выпил? Цель — 1 литр"})
+    jq.run_daily(ask_question, time=datetime.time(hour=12, minute=30),
+                 data={"question": "Начинаем дневной блок! Время немного размяться"})
+    jq.run_daily(ask_question, time=datetime.time(hour=12, minute=45),
+                 data={"question": "Пора на прогулку с собакой!"})
+    jq.run_daily(ask_question, time=datetime.time(hour=13, minute=15),
+                 data={"question": "Время обеда! Не забудь поесть"})
+    jq.run_daily(ask_question, time=datetime.time(hour=13, minute=45),
+                 data={"question": "Принял дневные таблетки?"})
+    jq.run_daily(ask_question, time=datetime.time(hour=13, minute=45),
+                 data={"question": "Сколько воды ты выпил? Цель — 1 литр"})
 
     # Вечер
-    job_queue.run_daily(ask_question, time=datetime.time(hour=22, minute=0),
-                        context={"question": "Время обязательной прогулки с собакой!"})
-    job_queue.run_daily(ask_question, time=datetime.time(hour=22, minute=30),
-                        context={"question": "Сделай лёгкую растяжку перед сном"})
-    job_queue.run_daily(ask_question, time=datetime.time(hour=22, minute=50),
-                        context={"question": "Сколько воды ты выпил? Цель — 1 литр к вечеру"})
-    job_queue.run_daily(ask_question, time=datetime.time(hour=23, minute=30),
-                        context={"question": "Как прошёл твой день?"})
+    jq.run_daily(ask_question, time=datetime.time(hour=22, minute=0),
+                 data={"question": "Время обязательной прогулки с собакой!"})
+    jq.run_daily(ask_question, time=datetime.time(hour=22, minute=30),
+                 data={"question": "Сделай лёгкую растяжку перед сном"})
+    jq.run_daily(ask_question, time=datetime.time(hour=22, minute=50),
+                 data={"question": "Сколько воды ты выпил? Цель — 1 литр к вечеру"})
+    jq.run_daily(ask_question, time=datetime.time(hour=23, minute=30),
+                 data={"question": "Как прошёл твой день?"})
 
+# ====== Основной запуск ======
 if __name__ == "__main__":
-    updater = Updater(TOKEN)
-    dp = updater.dispatcher
+    app = ApplicationBuilder().token(TOKEN).build()
 
-    dp.add_handler(CommandHandler("start", start))
-    dp.add_handler(CommandHandler("work", start_work))
-    dp.add_handler(CallbackQueryHandler(button))
+    # Обработчики команд и кнопок
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("work", start_work))
+    app.add_handler(CallbackQueryHandler(button))
 
-    schedule_jobs(updater)
+    # Планирование ежедневных напоминаний
+    schedule_jobs(app)
 
-    updater.start_polling()
-    updater.idle()
+    # Запуск бота
+    app.run_polling()
