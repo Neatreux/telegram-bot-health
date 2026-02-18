@@ -11,8 +11,8 @@ from telegram.ext import (
 )
 
 # ====== Настройки через переменные окружения ======
-TOKEN = os.environ["TOKEN"]
-CHAT_ID = os.environ["CHAT_ID"]
+TOKEN = "8223330413:AAHDgNxy29Qy_Fd1_wOuJIEIprSNjEjjAhE"
+CHAT_ID = 5886734154
 LOG_FILE = "data/daily_log.csv"
 
 # ====== Создание папки и CSV ======
@@ -127,4 +127,5 @@ if __name__ == "__main__":
 
     # Запуск бота
     app.run_polling()
+
 
