@@ -1,6 +1,7 @@
 import os
 import datetime
 import csv
+import pathlib
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder,
@@ -9,175 +10,215 @@ from telegram.ext import (
     ContextTypes,
 )
 
-# ====== Настройки ======
+# ====== НАСТРОЙКИ ======
 TOKEN = "8223330413:AAHDgNxy29Qy_Fd1_wOuJIEIprSNjEjjAhE"
 CHAT_ID = 5886734154
 LOG_FILE = "data/daily_log.csv"
 
-# ====== Создание папки и CSV ======
-import pathlib
+# ====== ПАПКА И CSV ======
 pathlib.Path("data").mkdir(exist_ok=True)
 if not os.path.exists(LOG_FILE):
     with open(LOG_FILE, "w", newline="") as f:
         writer = csv.writer(f)
         writer.writerow(["Дата", "Время", "Вопрос", "Ответ"])
 
-# ====== Кнопки ======
-buttons_done = [
-    [InlineKeyboardButton("Сделал ✅", callback_data="Сделал"),
-     InlineKeyboardButton("Пропустил ❌", callback_data="Пропустил"),
-     InlineKeyboardButton("Делаю ⏳", callback_data="Делаю")]
+# ====== КНОПКИ ======
+buttons_work = [
+    [
+        InlineKeyboardButton("Сделал ✅", callback_data="done"),
+        InlineKeyboardButton("Пропустил ❌", callback_data="skip"),
+        InlineKeyboardButton("Делаю ⏳", callback_data="doing"),
+    ],
+    [
+        InlineKeyboardButton("Остановить работу 🛑", callback_data="stop_work")
+    ]
 ]
 
-buttons_done_work = [
-    [InlineKeyboardButton("Закончил работу ✅", callback_data="done_work")]
+buttons_evening = [
+    [
+        InlineKeyboardButton("Сделал ✅", callback_data="done"),
+        InlineKeyboardButton("Пропустил ❌", callback_data="skip"),
+        InlineKeyboardButton("Делаю ⏳", callback_data="doing"),
+    ],
+    [
+        InlineKeyboardButton("Выключить вечер сегодня 🌙", callback_data="stop_evening")
+    ]
 ]
 
-buttons_done_office = [
-    [InlineKeyboardButton("Закончил офисный блок ✅", callback_data="done_office")]
-]
-
-# ====== Логирование ======
+# ====== ЛОГИРОВАНИЕ ======
 def log_response(question, answer):
     now = datetime.datetime.now()
     with open(LOG_FILE, "a", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow([now.date(), now.time().strftime("%H:%M:%S"), question, answer])
+        writer.writerow([
+            now.date(),
+            now.time().strftime("%H:%M:%S"),
+            question,
+            answer
+        ])
 
-# ====== Команды ======
+# ====== КОМАНДЫ ======
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "Привет! Я твой интерактивный бот для здоровья и дневника.\n"
-        "Нажми /work, когда начнёшь дневную работу, или /office, если ты в офисе."
+        "Привет 👋\n"
+        "Нажми /work чтобы запустить рабочий блок."
     )
 
-# --- Дневной блок ---
+# ====== РАБОЧИЙ БЛОК ======
 async def start_work(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "Дневной блок активирован! Напоминания о растяжке, прогулке, обеде и воде будут приходить."
-    )
-    context.job_queue.run_repeating(remind_stretch, interval=3600, first=0, data={})
-
-async def done_work(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    for job in context.job_queue.jobs():
-        job.schedule_removal()
-    await update.message.reply_text(
-        "Дневной блок завершён ✅ Все повторяющиеся напоминания остановлены."
-    )
-    log_response("Дневной блок завершён", "Да")
-
-# --- Офисный блок ---
-async def start_office(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "Офисный блок активирован! Напоминания о разминке, воде и обеде будут приходить."
-    )
-    context.job_queue.run_repeating(remind_office, interval=3600, first=0, data={})
-
-async def done_office(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    for job in context.job_queue.jobs():
-        job.schedule_removal()
-    await update.message.reply_text(
-        "Офисный блок завершён ✅ Все напоминания остановлены."
-    )
-    log_response("Офисный блок завершён", "Да")
-
-# ====== Напоминания ======
-async def remind_stretch(context: ContextTypes.DEFAULT_TYPE):
-    await context.bot.send_message(
-        chat_id=CHAT_ID,
-        text="Время размяться! Сделай короткую зарядку.",
-        reply_markup=InlineKeyboardMarkup(buttons_done + buttons_done_work)
+        "Рабочий блок активирован ✅\n"
+        "Буду напоминать о разминке и воде каждый час."
     )
 
-async def remind_office(context: ContextTypes.DEFAULT_TYPE):
+    context.job_queue.run_repeating(
+        remind_work,
+        interval=3600,
+        first=0,
+        name="work_block"
+    )
+
+async def remind_work(context: ContextTypes.DEFAULT_TYPE):
     now = datetime.datetime.now()
     if now.hour == 13:
-        msg = "Время обеда!"
+        text = "🍽 Время обеда!"
     else:
-        msg = "Время размяться и выпить воды 💧"
+        text = "⏰ Время размяться и выпить воды!"
     await context.bot.send_message(
         chat_id=CHAT_ID,
-        text=msg,
-        reply_markup=InlineKeyboardMarkup(buttons_done + buttons_done_office)
+        text=text,
+        reply_markup=InlineKeyboardMarkup(buttons_work)
     )
 
-async def ask_question(context: ContextTypes.DEFAULT_TYPE):
-    job = context.job
+# ====== ВЕЧЕРНИЙ БЛОК ======
+async def start_evening_auto(context: ContextTypes.DEFAULT_TYPE):
+    context.job_queue.run_repeating(
+        remind_evening,
+        interval=1800,  # каждые 30 минут
+        first=0,
+        name="evening_block"
+    )
+
+async def stop_evening_auto(context: ContextTypes.DEFAULT_TYPE):
+    evening_jobs = context.job_queue.get_jobs_by_name("evening_block")
+    for job in evening_jobs:
+        job.schedule_removal()
+
+async def remind_evening(context: ContextTypes.DEFAULT_TYPE):
+    now = datetime.datetime.now()
+    if now.hour >= 22:
+        text = "🐕 Время вечерней прогулки с собакой!"
+    elif now.hour >= 21:
+        text = "🧘 Сделай лёгкую растяжку"
+    else:
+        text = "💧 Проверь воду перед сном"
     await context.bot.send_message(
         chat_id=CHAT_ID,
-        text=job.data["question"],
-        reply_markup=InlineKeyboardMarkup(buttons_done + buttons_done_work)
+        text=text,
+        reply_markup=InlineKeyboardMarkup(buttons_evening)
     )
 
-# ====== Обработка кнопок ======
+# ====== ОБРАБОТКА КНОПОК ======
 async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+
     answer = query.data
     question = query.message.text
 
-    if answer == "done_work":
-        for job in context.job_queue.jobs():
+    # --- Остановка блоков ---
+    if answer == "stop_work":
+        jobs = context.job_queue.get_jobs_by_name("work_block")
+        for job in jobs:
             job.schedule_removal()
-        await query.edit_message_text("Дневной блок завершён ✅")
-        log_response("Дневной блок завершён", "Да")
+        await query.edit_message_text("Рабочий блок остановлен 🛑")
+        log_response("Рабочий блок остановлен", "Да")
         return
 
-    if answer == "done_office":
-        for job in context.job_queue.jobs():
+    if answer == "stop_evening":
+        jobs = context.job_queue.get_jobs_by_name("evening_block")
+        for job in jobs:
             job.schedule_removal()
-        await query.edit_message_text("Офисный блок завершён ✅")
-        log_response("Офисный блок завершён", "Да")
+        await query.edit_message_text("Вечер сегодня отключён 🌙")
+        log_response("Вечер отключён", "Да")
         return
 
-    log_response(question, answer)
+    # --- Обычные ответы ---
+    if answer == "done":
+        log_response(question, "Сделал")
+        await query.edit_message_text(f"{question}\nОтвет: Сделал ✅")
+    elif answer == "skip":
+        log_response(question, "Пропустил")
+        await query.edit_message_text(f"{question}\nОтвет: Пропустил ❌")
+    elif answer == "doing":
+        log_response(question, "Делаю")
+        context.job_queue.run_once(
+            remind_repeat,
+            900,
+            data={"question": question}
+        )
+        await query.edit_message_text(f"{question}\nОтвет: Делаю ⏳ (повтор через 15 минут)")
 
-    if answer == "Делаю":
-        context.job_queue.run_once(ask_question, 900, data={"question": question})
-        await query.edit_message_text(f"{question}\nОтвет: {answer} (повтор через 15 мин)")
-    else:
-        await query.edit_message_text(f"{question}\nОтвет: {answer}")
+# ====== ПОВТОР ЕСЛИ "ДЕЛАЮ" ======
+async def remind_repeat(context: ContextTypes.DEFAULT_TYPE):
+    question = context.job.data["question"]
+    await context.bot.send_message(
+        chat_id=CHAT_ID,
+        text=f"Напоминаю:\n{question}",
+        reply_markup=InlineKeyboardMarkup(buttons_work + buttons_evening)
+    )
 
-# ====== Планирование ежедневных напоминаний ======
-def schedule_jobs(app):
+# ====== ЕЖЕДНЕВНЫЕ ВОПРОСЫ ======
+async def ask_daily(context: ContextTypes.DEFAULT_TYPE):
+    question = context.job.data["question"]
+    await context.bot.send_message(
+        chat_id=CHAT_ID,
+        text=question,
+        reply_markup=InlineKeyboardMarkup(buttons_work)
+    )
+
+def schedule_daily(app):
     jq = app.job_queue
 
-    # Утро
-    jq.run_daily(ask_question, time=datetime.time(hour=8, minute=0), data={"question": "Доброе утро! Как спалось?"})
-    jq.run_daily(ask_question, time=datetime.time(hour=8, minute=5), data={"question": "Ты принял утренние таблетки?"})
-    jq.run_daily(ask_question, time=datetime.time(hour=9, minute=0), data={"question": "Время утренней зарядки или похода в зал"})
-    jq.run_daily(ask_question, time=datetime.time(hour=9, minute=30), data={"question": "Сколько воды ты выпил? Цель — 500 мл"})
+    # Утренние вопросы
+    jq.run_daily(
+        ask_daily,
+        time=datetime.time(hour=8, minute=0),
+        data={"question": "Доброе утро! Как спалось?"}
+    )
 
-    # Дневной блок
-    jq.run_daily(ask_question, time=datetime.time(hour=12, minute=30), data={"question": "Начинаем дневной блок! Время немного размяться"})
-    jq.run_daily(ask_question, time=datetime.time(hour=12, minute=45), data={"question": "Пора на прогулку с собакой!"})
-    jq.run_daily(ask_question, time=datetime.time(hour=13, minute=15), data={"question": "Время обеда! Не забудь поесть"})
-    jq.run_daily(ask_question, time=datetime.time(hour=13, minute=45), data={"question": "Принял дневные таблетки?"})
-    jq.run_daily(ask_question, time=datetime.time(hour=13, minute=45), data={"question": "Сколько воды ты выпил? Цель — 1 литр"})
+    # Вечерние вопросы
+    jq.run_daily(
+        ask_daily,
+        time=datetime.time(hour=23, minute=30),
+        data={"question": "Как прошёл день?"}
+    )
 
-    # Вечер
-    jq.run_daily(ask_question, time=datetime.time(hour=22, minute=0), data={"question": "Время обязательной прогулки с собакой!"})
-    jq.run_daily(ask_question, time=datetime.time(hour=22, minute=30), data={"question": "Сделай лёгкую растяжку перед сном"})
-    jq.run_daily(ask_question, time=datetime.time(hour=22, minute=50), data={"question": "Сколько воды ты выпил? Цель — 1 литр к вечеру"})
-    jq.run_daily(ask_question, time=datetime.time(hour=23, minute=30), data={"question": "Как прошёл твой день?"})
+    # Автостарт вечера в 21:00
+    jq.run_daily(
+        start_evening_auto,
+        time=datetime.time(hour=21, minute=0)
+    )
 
-# ====== Запуск бота ======
+    # Автоостановка вечера в 23:59
+    jq.run_daily(
+        stop_evening_auto,
+        time=datetime.time(hour=23, minute=59)
+    )
+
+# ====== ЗАПУСК БОТА ======
 if __name__ == "__main__":
     app = ApplicationBuilder().token(TOKEN).build()
 
     # Команды
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("work", start_work))
-    app.add_handler(CommandHandler("done", done_work))
-    app.add_handler(CommandHandler("office", start_office))
-    app.add_handler(CommandHandler("done_office", done_office))
 
     # Кнопки
     app.add_handler(CallbackQueryHandler(button))
 
-    # Планирование JobQueue
-    schedule_jobs(app)
+    # Планирование ежедневных задач
+    schedule_daily(app)
+
+    print("Бот запущен...")
     app.run_polling()
-
-
-
